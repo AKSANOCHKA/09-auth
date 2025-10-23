@@ -1,14 +1,16 @@
-import axios from 'axios';
+import axios from "axios";
 
-// Для клієнтських запитів до власних Route Handlers завжди використовуємо відносні шляхи
+// Базовий URL із змінної оточення + '/api'
+const baseURL = process.env.NEXT_PUBLIC_API_URL + "/api";
+
+// Інстанс для власних Next.js API route (використовує відносний шлях)
 export const nextServer = axios.create({
-  baseURL: '/api',
+  baseURL: "/api",
   withCredentials: true,
 });
 
-// Для серверних запитів до зовнішнього бекенду
+// Інстанс для зовнішнього API (через базовий URL із змінної середовища)
 export const api = axios.create({
-  baseURL: 'https://notehub-api.goit.study',
+  baseURL,
   withCredentials: true,
 });
-
