@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { serverApi } from "./lib/api/serverApi";
+import { getSessionServer } from "./lib/api/serverApi";
 
 const AUTH_PAGES = ["/sign-in", "/sign-up"];
 const PROTECTED_PREFIXES = ["/profile", "/notes"];
@@ -16,37 +16,38 @@ export async function middleware(request: NextRequest) {
   const accessToken = request.cookies.get("accessToken")?.value;
   const refreshToken = request.cookies.get("refreshToken")?.value;
 
-  // ✅ Якщо користувач уже авторизований і заходить на /sign-in або /sign-up → редірект у профіль
   if (accessToken && isAuthPage(pathname)) {
     const destination = request.nextUrl.clone();
     destination.pathname = "/profile";
     return NextResponse.redirect(destination);
   }
 
-  // ✅ Якщо користувач не має accessToken, але має refreshToken — пробуємо оновити сесію
   if (!accessToken && refreshToken) {
     try {
-      const apiRes = await serverApi.get("auth/session", {
-        headers: { Cookie: request.headers.get("cookie") || "" },
-      });
+      const apiRes = await getSessionServer();
 
       if (apiRes.data?.success) {
-        // створюємо нову відповідь, щоб оновити куки
         const response = NextResponse.next();
+
+        // Ось правильний доступ до заголовку set-cookie в Axios
         const setCookie = apiRes.headers["set-cookie"];
 
         if (setCookie) {
-          setCookie.forEach((cookieStr: string) => {
+          // setCookie може бути рядком або масивом рядків
+          const cookiesArr = Array.isArray(setCookie) ? setCookie : [setCookie];
+
+          cookiesArr.forEach((cookieStr: string) => {
             const [nameValue] = cookieStr.split(";");
             const [name, value] = nameValue.split("=");
-            response.cookies.set(name.trim(), value);
+            if (name && value) {
+              response.cookies.set(name.trim(), value);
+            }
           });
         }
 
         return response;
       }
     } catch {
-      // якщо оновити сесію не вдалось — видаляємо старі токени
       const response = NextResponse.redirect(new URL("/sign-in", request.url));
       response.cookies.delete("accessToken");
       response.cookies.delete("refreshToken");
@@ -54,7 +55,6 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // ✅ Якщо користувач неавторизований і намагається потрапити в захищену зону — редірект на /sign-in
   if (!accessToken && isProtectedPath(pathname)) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/sign-in";
@@ -65,7 +65,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  // ✅ Інакше — пускаємо далі
   return NextResponse.next();
 }
 
