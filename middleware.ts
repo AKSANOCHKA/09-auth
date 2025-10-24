@@ -13,16 +13,40 @@ const isProtectedPath = (pathname: string) =>
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const accessToken = request.cookies.get("accessToken")?.value;
+  const refreshToken = request.cookies.get("refreshToken")?.value;
 
-  // Якщо користувач уже авторизований — не пускаємо на /sign-in /sign-up
+  // ✅ Якщо є accessToken і користувач відкриває /sign-in або /sign-up → редирект у профіль
   if (accessToken && isAuthPage(pathname)) {
     const destination = request.nextUrl.clone();
     destination.pathname = "/profile";
     return NextResponse.redirect(destination);
   }
 
-  // Якщо токена немає і маршрут захищений — редирект на /sign-in
-  if (!accessToken && isProtectedPath(pathname)) {
+  // ✅ Якщо accessToken немає, але є refreshToken — пробуємо оновити сесію
+  if (!accessToken && refreshToken) {
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/auth/session`,
+        {
+          method: "GET",
+          headers: {
+            Cookie: `refreshToken=${refreshToken}`,
+          },
+        }
+      );
+      const data = await res.json();
+
+      // Якщо бекенд підтвердив сесію — дозволяємо доступ
+      if (data.success) {
+        return NextResponse.next();
+      }
+    } catch {
+      // Ігноруємо, якщо оновити не вдалося
+    }
+  }
+
+  // ✅ Якщо користувач неавторизований і відкриває приватну сторінку — редирект на /sign-in
+  if (!accessToken && !refreshToken && isProtectedPath(pathname)) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/sign-in";
     redirectUrl.searchParams.set(

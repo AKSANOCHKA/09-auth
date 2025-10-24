@@ -10,34 +10,75 @@ export async function GET() {
     const accessToken = cookieStore.get("accessToken")?.value;
     const refreshToken = cookieStore.get("refreshToken")?.value;
 
-    // ✅ Якщо вже є accessToken — не робимо запит до API
+    // Якщо є accessToken — просто повертаємо успіх
     if (accessToken) {
       return NextResponse.json({ success: true }, { status: 200 });
     }
 
-    // ✅ Якщо немає жодного токена
+    // Якщо немає жодного токена — сесія неактивна
     if (!accessToken && !refreshToken) {
       return NextResponse.json({ success: false }, { status: 200 });
     }
 
-    // ✅ Якщо є refreshToken — пробуємо оновити сесію через API
-    const apiRes = await api.get("auth/session", {
+    // Якщо є refreshToken — пробуємо оновити сесію через бекенд
+    const apiRes = await api.get("/auth/session", {
       headers: {
         Cookie: cookieStore.toString(),
       },
     });
 
-    // ✅ Якщо API повернув нові куки — оновлюємо їх у відповіді
+    const response = NextResponse.json({ success: true }, { status: 200 });
+
     const setCookie = apiRes.headers["set-cookie"];
     if (setCookie) {
       setCookie.forEach((cookieStr: string) => {
-        const [nameValue] = cookieStr.split(";");
-        const [name, value] = nameValue.split("=");
-        cookieStore.set(name.trim(), value);
+        const parts = cookieStr.split(";").map((part) => part.trim());
+        const [name, value] = parts[0].split("=");
+
+        interface CookieOptions {
+          path?: string;
+          expires?: Date;
+          httpOnly?: boolean;
+          secure?: boolean;
+          sameSite?: true | false | "lax" | "strict" | "none";
+          maxAge?: number;
+        }
+
+        const cookieOptions: CookieOptions = {};
+
+        parts.slice(1).forEach((attr) => {
+          const [key, val] = attr.split("=");
+          const lowerKey = key.toLowerCase();
+
+          if (lowerKey === "path") cookieOptions.path = val || "/";
+          else if (lowerKey === "expires") {
+            const date = new Date(val);
+            if (!isNaN(date.getTime())) cookieOptions.expires = date;
+          } else if (lowerKey === "httponly") cookieOptions.httpOnly = true;
+          else if (lowerKey === "secure") cookieOptions.secure = true;
+          else if (lowerKey === "samesite") {
+            // ✅ нормалізуємо значення
+            const normalized =
+              val?.toLowerCase() === "lax"
+                ? "lax"
+                : val?.toLowerCase() === "strict"
+                  ? "strict"
+                  : val?.toLowerCase() === "none"
+                    ? "none"
+                    : true; // іноді бекенд відправляє SameSite без значення → true
+            cookieOptions.sameSite = normalized;
+          } else if (lowerKey === "max-age") cookieOptions.maxAge = Number(val);
+        });
+
+        response.cookies.set({
+          name: name.trim(),
+          value: value.trim(),
+          ...cookieOptions,
+        });
       });
     }
 
-    return NextResponse.json({ success: true }, { status: 200 });
+    return response;
   } catch (error) {
     if (isAxiosError(error)) {
       logErrorResponse(error.response?.data);
@@ -48,4 +89,3 @@ export async function GET() {
     return NextResponse.json({ success: false }, { status: 200 });
   }
 }
-
